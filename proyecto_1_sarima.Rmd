@@ -1,0 +1,497 @@
+---
+title: "Proyecto 1 - Modelos ARIMA/SARIMA"
+author: "Juan Sebastian Angel Perez"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+---
+
+```{r include=FALSE}
+data <- read.csv("data/amazon_sales_dataset.csv")
+head(data)
+str(data)
+```
+
+```{r include=FALSE}
+data$order_date <- as.Date(data$order_date)
+class(data$order_date)
+```
+
+```{r include=FALSE}
+library(dplyr)
+library(lubridate)
+```
+
+```{r include=FALSE}
+monthly_sales <- data %>%
+  mutate(month = floor_date(order_date, "month")) %>%
+  group_by(month) %>%
+  summarise(revenue = sum(total_revenue))
+
+head(monthly_sales)
+```
+
+
+## Introducción
+
+Para este trabajo se utilizó un conjunto de datos de comercio electrónico que contiene 
+información sobre transacciones de ventas, incluyendo variables como fecha de orden, 
+categoría de producto, precio, descuentos y valor total de la venta. A partir de esta 
+base de datos se construyó una serie temporal utilizando la variable **total_revenue**, 
+que representa los ingresos generados por las ventas.
+
+Los datos originales corresponden a transacciones individuales, por lo que fue necesario 
+realizar un proceso de agregación para obtener una serie temporal mensual de ingresos. 
+De esta forma se generó una serie con observaciones mensuales correspondientes al 
+período comprendido entre 2022 y 2023.
+
+El objetivo de este trabajo es modelar el comportamiento de la serie temporal de 
+ingresos mensuales mediante modelos ARIMA, siguiendo el procedimiento de Box-Jenkins. 
+Para ello se analizan las propiedades estadísticas de la serie, se identifican 
+modelos candidatos, se evalúan sus residuos y finalmente se generan pronósticos 
+para evaluar la capacidad predictiva del modelo seleccionado.
+
+## Exploración de la serie temporal
+
+En esta sección se realiza una exploración inicial de la serie temporal de ingresos mensuales obtenida a partir del conjunto de datos de ventas. El objetivo es observar el comportamiento general de la serie, identificar posibles patrones y evaluar visualmente la presencia de tendencia o estacionalidad.
+  
+### Gráfico de la serie original
+
+```{r fig.width=10, fig.height=6}
+library(ggplot2)
+
+ggplot(monthly_sales, aes(x = month, y = revenue)) +
+  geom_line(color = "blue") +
+  labs(title = "Monthly Revenue Time Series",
+       x = "Month",
+       y = "Revenue") +
+  theme_minimal()
+```
+
+```{r}
+revenue_ts <- ts(monthly_sales$revenue, frequency = 12)
+revenue_ts
+```
+
+```{r}
+plot(revenue_ts,
+     main = "Monthly Revenue Time Series",
+     ylab = "Revenue",
+     xlab = "Time",
+     col = "blue")
+```
+
+El gráfico de la serie temporal de ingresos mensuales muestra la evolución del revenue generado por las ventas a lo largo del período analizado. En general, la serie presenta variaciones en el nivel de ingresos entre los diferentes meses, con algunos incrementos y disminuciones a lo largo del tiempo.
+
+No se observa una tendencia claramente creciente o decreciente durante todo el período, aunque sí se presentan fluctuaciones en los valores mensuales. Asimismo, debido a que la serie contiene únicamente dos años de observaciones, no es posible identificar con claridad un patrón estacional definido.
+
+La variabilidad de la serie parece mantenerse relativamente estable a lo largo del tiempo, sin evidencia clara de cambios significativos en la dispersión de los datos.
+
+## Proceso Box-Jenkins
+
+El análisis de la serie temporal se realizó siguiendo el procedimiento de Box-Jenkins, el cual consiste en un proceso iterativo que incluye la identificación, estimación y verificación de modelos ARIMA. Este procedimiento permite seleccionar el modelo que mejor describe la dinámica de la serie temporal y que cumple con los supuestos estadísticos requeridos.
+
+### Verificación de estacionariedad
+
+```{r}
+library(tseries)
+
+adf.test(revenue_ts)
+```
+Para evaluar si la serie temporal es estacionaria se aplicó la prueba de Dickey-Fuller aumentada (ADF). Esta prueba permite determinar si la serie presenta una raíz unitaria, lo que implicaría que no es estacionaria.
+
+El resultado de la prueba ADF aplicada a la serie original arrojó un valor p de aproximadamente 0.05898. Dado que este valor es mayor que el nivel de significancia común de 0.05, no se rechaza la hipótesis nula de la prueba.
+
+Por lo tanto, se concluye que la serie temporal original no es estacionaria, lo cual hace necesario aplicar transformaciones para poder modelarla adecuadamente mediante modelos ARIMA.
+
+
+### Transformación para lograr estacionariedad
+
+```{r}
+diff_revenue <- diff(revenue_ts)
+
+diff_revenue
+```
+
+```{r fig.width=10, fig.height=6}
+plot(diff_revenue,
+     main = "Differenced Revenue Series",
+     ylab = "Differenced Revenue",
+     col = "blue")
+```
+```{r}
+adf.test(diff_revenue)
+```
+
+Dado que la prueba de Dickey-Fuller aumentada indicó que la serie original no es estacionaria, se aplicó una transformación mediante diferenciación de primer orden con el objetivo de estabilizar la media de la serie.
+
+La diferenciación consiste en calcular la diferencia entre observaciones consecutivas de la serie temporal. Este procedimiento permite eliminar posibles tendencias y facilitar la aplicación de modelos ARIMA, los cuales requieren que la serie sea estacionaria.
+
+Luego de aplicar la primera diferenciación, se volvió a realizar la prueba de Dickey-Fuller aumentada. El resultado arrojó un valor p menor que 0.05, lo que permitió rechazar la hipótesis nula de raíz unitaria. Por lo tanto, se concluye que la serie diferenciada es estacionaria.
+
+En consecuencia, el orden de diferenciación utilizado en los modelos ARIMA estimados es d = 1.
+
+### Identificación del modelo (ACF y PACF)
+
+```{r fig.width=10, fig.height=6}
+acf(diff_revenue, main="ACF of Differenced Series")
+pacf(diff_revenue, main="PACF of Differenced Series")
+```
+
+Para identificar posibles modelos ARIMA se analizaron las funciones de autocorrelación (ACF) y autocorrelación parcial (PACF) de la serie diferenciada.
+
+El gráfico de la ACF muestra un pico significativo en el primer rezago y posteriormente las autocorrelaciones se mantienen dentro de los límites de confianza. Este comportamiento es característico de procesos de media móvil de bajo orden.
+
+Por su parte, la PACF no presenta un corte claro en un rezago específico, sino que las correlaciones parciales decrecen gradualmente. Este patrón sugiere la presencia de un componente autorregresivo pequeño o incluso nulo.
+
+Con base en estos resultados se propusieron dos modelos candidatos para ser estimados y comparados posteriormente: ARIMA(0,1,1) y ARIMA(1,1,1).
+
+## Estimación de modelos
+
+Con base en el análisis de las funciones de autocorrelación y autocorrelación parcial se estimaron dos modelos candidatos: ARIMA(0,1,1) y ARIMA(1,1,1). Estos modelos fueron estimados con el objetivo de comparar su desempeño y seleccionar el modelo que mejor se ajusta a la serie temporal.
+
+### Modelo ARIMA(0,1,1)
+
+```{r}
+model1 <- arima(revenue_ts, order = c(0,1,1))
+
+model1
+```
+
+### Modelo ARIMA(1,1,1)
+
+```{r}
+model2 <- arima(revenue_ts, order = c(1,1,1))
+
+model2
+```
+
+## Verificación de residuos
+
+```{r, fig.width=10, fig.height=7}
+tsdiag(model1)
+```
+
+```{r fig.width=10, fig.height=8}
+tsdiag(model2)
+```
+
+Con el fin de evaluar la validez de los modelos estimados, se realizó un análisis de los residuos para los modelos ARIMA(0,1,1) y ARIMA(1,1,1). Este análisis permite verificar si los residuos se comportan como ruido blanco, lo cual es un supuesto fundamental para que el modelo sea considerado adecuado.
+
+En ambos modelos, el gráfico de los residuos estandarizados muestra fluctuaciones alrededor de cero sin la presencia de patrones sistemáticos evidentes. Esto sugiere que los modelos logran capturar adecuadamente la estructura temporal de la serie.
+
+El análisis de la función de autocorrelación (ACF) de los residuos indica que la mayoría de las autocorrelaciones se encuentran dentro de los límites de confianza, lo que sugiere la ausencia de autocorrelación significativa en los residuos.
+
+Adicionalmente, los valores p asociados a la prueba de Ljung-Box para diferentes rezagos son mayores que el nivel de significancia de 0.05 en ambos modelos. Por lo tanto, no se rechaza la hipótesis nula de independencia de los residuos.
+
+En conjunto, estos resultados indican que los residuos de ambos modelos se comportan aproximadamente como ruido blanco, lo cual respalda la adecuación estadística de los modelos estimados.
+
+## Selección del modelo
+
+| Modelo | AIC |
+|------|------|
+| ARIMA(0,1,1) | 576.77 |
+| ARIMA(1,1,1) | 577.84 |
+
+Para seleccionar el modelo más adecuado se compararon los modelos ARIMA(0,1,1) y ARIMA(1,1,1) utilizando criterios de información y medidas de ajuste.
+
+El modelo ARIMA(0,1,1) presentó un menor valor del AIC en comparación con el modelo ARIMA(1,1,1). Dado que un menor valor de AIC indica un mejor equilibrio entre calidad de ajuste y complejidad del modelo, se seleccionó el modelo ARIMA(0,1,1) como el modelo final.
+
+La representación matemática del modelo seleccionado se expresa mediante la siguiente ecuación:
+
+$$
+(1 - B)Y_t = (1 - \theta_1 B)\varepsilon_t
+$$
+
+## Pronósticos y evaluación predictiva
+
+Una vez seleccionado el modelo final, se procedió a evaluar su capacidad predictiva mediante un esquema de validación utilizando muestras de entrenamiento y prueba.
+
+### División Train/Test
+
+```{r}
+train <- window(revenue_ts, end = c(2,6))
+test <- window(revenue_ts, start = c(2,7))
+```
+
+
+### Pronósticos
+
+```{r}
+library(forecast)
+
+model_train <- arima(train, order = c(0,1,1))
+
+forecast_values <- forecast(model_train, h = length(test))
+
+pred <- forecast_values$mean
+```
+
+
+```{r fig.width=10, fig.height=6}
+library(ggplot2)
+
+
+autoplot(revenue_ts, series = "Actual") +
+  autolayer(forecast_values$mean, series = "Forecast", color = "blue", size = 1) +
+  autolayer(test, series = "Test", color = "red", size = 1) +
+  labs(title = "Revenue Forecast vs Actual Values",
+       x = "Time",
+       y = "Revenue") +
+  theme_minimal()
+```
+
+
+### Evaluación del pronóstico (MSE y MAPE)
+
+```{r}
+mse <- mean((test - pred)^2)
+
+mape <- mean(abs((test - pred)/test))*100
+
+mse
+mape
+```
+
+
+Para evaluar el desempeño predictivo del modelo se calcularon dos métricas: el Error Cuadrático Medio (MSE) y el Error Porcentual Absoluto Medio (MAPE).
+
+El valor obtenido para el MSE fue de 2143401341, mientras que el MAPE fue de aproximadamente 3.01%. Estos resultados indican que el modelo presenta un error porcentual relativamente bajo, lo que sugiere una buena capacidad para aproximar los valores reales de la serie en el período de prueba.
+
+## Modelo SARIMAX (Ejercicio adicional)
+
+```{r}
+monthly_discount <- data %>%
+  mutate(month = floor_date(order_date, "month")) %>%
+  group_by(month) %>%
+  summarise(avg_discount = mean(discount_percent))
+
+head(monthly_discount)
+```
+
+```{r}
+discount_ts <- ts(monthly_discount$avg_discount, frequency = 12)
+discount_ts
+```
+
+```{r}
+sarimax_model <- arima(revenue_ts,
+                       order = c(0,1,1),
+                       xreg = discount_ts)
+
+sarimax_model
+```
+
+```{r, fig.width=10, fig.height=6}
+tsdiag(sarimax_model)
+```
+
+Como ejercicio adicional se estimó un modelo SARIMAX con el objetivo de evaluar si una variable externa puede mejorar la capacidad explicativa del modelo. En este caso se utilizó como variable exógena el descuento promedio mensual (avg_discount), calculado a partir de la variable discount_percent del conjunto de datos original.
+
+El modelo estimado corresponde a un SARIMAX(0,1,1), donde la serie de ingresos mensuales se modela incorporando el descuento promedio mensual como variable explicativa. Los resultados del modelo muestran un coeficiente negativo asociado a la variable de descuento, lo que sugiere que incrementos en el descuento promedio mensual estarían asociados con reducciones en el revenue esperado, manteniendo constante la dinámica temporal del modelo.
+
+Sin embargo, al comparar los criterios de información se observa que el modelo SARIMAX presenta un valor de AIC mayor que el modelo ARIMA(0,1,1) estimado previamente. Esto indica que la inclusión de la variable exógena no mejora el ajuste del modelo.
+
+El análisis de residuos del modelo SARIMAX muestra que los residuos se comportan como ruido blanco. La función de autocorrelación de los residuos no presenta correlaciones significativas y los p-values del test de Ljung-Box se mantienen por encima del nivel de significancia del 5%, lo que indica ausencia de autocorrelación residual.
+
+En conclusión, aunque el modelo SARIMAX es estadísticamente válido, la inclusión de la variable de descuento no mejora el desempeño del modelo respecto al ARIMA(0,1,1), por lo que el modelo ARIMA simple continúa siendo la mejor alternativa para describir y pronosticar la serie temporal analizada.
+
+## Conclusiones
+
+En este trabajo se aplicó la metodología de Box-Jenkins para modelar una serie temporal de ingresos mensuales obtenida a partir de datos de ventas de comercio electrónico.
+
+El análisis inicial mostró que la serie original no era estacionaria, por lo que fue necesario aplicar una diferenciación de primer orden. Posteriormente se analizaron las funciones de autocorrelación y autocorrelación parcial, lo que permitió identificar dos modelos candidatos: ARIMA(0,1,1) y ARIMA(1,1,1).
+
+Luego de estimar ambos modelos y realizar el análisis de residuos, se seleccionó el modelo ARIMA(0,1,1) como el modelo final debido a que presentó un menor valor del criterio de información AIC y cumplió con los supuestos estadísticos requeridos.
+
+Finalmente, se generaron pronósticos utilizando una división de los datos en muestras de entrenamiento y prueba. La evaluación del desempeño predictivo mediante las métricas MSE y MAPE mostró que el modelo presenta una muy buena capacidad de pronóstico.
+
+Adicionalmente, se estimó un modelo SARIMAX como ejercicio complementario incorporando una variable exógena correspondiente al descuento promedio mensual. Sin embargo, la inclusión de esta variable no mejoró el ajuste del modelo en comparación con el ARIMA simple.
+
+En conclusión, el modelo ARIMA(0,1,1) resulta adecuado para describir y pronosticar el comportamiento de la serie temporal analizada.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
