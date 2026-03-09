@@ -1,7 +1,6 @@
 ---
 title: "Proyecto 1 - Modelos ARIMA/SARIMA"
 author: "Juan Sebastian Angel Perez"
-date: "`r Sys.Date()`"
 output:
   html_document:
     toc: true
@@ -38,22 +37,11 @@ head(monthly_sales)
 
 ## Introducción
 
-Para este trabajo se utilizó un conjunto de datos de comercio electrónico que contiene 
-información sobre transacciones de ventas, incluyendo variables como fecha de orden, 
-categoría de producto, precio, descuentos y valor total de la venta. A partir de esta 
-base de datos se construyó una serie temporal utilizando la variable **total_revenue**, 
-que representa los ingresos generados por las ventas.
+Para este trabajo se utilizó un conjunto de datos de comercio electrónico que contiene información sobre transacciones de ventas, incluyendo variables como fecha de orden, categoría de producto, precio, descuentos y valor total de la venta. A partir de esta base de datos se construyó una serie temporal utilizando la variable **total_revenue**, que representa los ingresos generados por las ventas.
 
-Los datos originales corresponden a transacciones individuales, por lo que fue necesario 
-realizar un proceso de agregación para obtener una serie temporal mensual de ingresos. 
-De esta forma se generó una serie con observaciones mensuales correspondientes al 
-período comprendido entre 2022 y 2023.
+Los datos originales corresponden a transacciones individuales, por lo que fue necesario realizar un proceso de agregación para obtener una serie temporal mensual de ingresos. De esta forma se generó una serie con observaciones mensuales correspondientes al período comprendido entre 2022 y 2023.
 
-El objetivo de este trabajo es modelar el comportamiento de la serie temporal de 
-ingresos mensuales mediante modelos ARIMA, siguiendo el procedimiento de Box-Jenkins. 
-Para ello se analizan las propiedades estadísticas de la serie, se identifican 
-modelos candidatos, se evalúan sus residuos y finalmente se generan pronósticos 
-para evaluar la capacidad predictiva del modelo seleccionado.
+El objetivo de este trabajo es modelar el comportamiento de la serie temporal de ingresos mensuales mediante modelos ARIMA, siguiendo el procedimiento de Box-Jenkins. Para ello se analizan las propiedades estadísticas de la serie, se identifican modelos candidatos, se evalúan sus residuos y finalmente se generan pronósticos para evaluar la capacidad predictiva del modelo seleccionado.
 
 ## Exploración de la serie temporal
 
@@ -61,7 +49,7 @@ En esta sección se realiza una exploración inicial de la serie temporal de ing
   
 ### Gráfico de la serie original
 
-```{r fig.width=10, fig.height=6}
+```{r echo=FALSE, fig.height=6, fig.width=10}
 library(ggplot2)
 
 ggplot(monthly_sales, aes(x = month, y = revenue)) +
@@ -72,12 +60,12 @@ ggplot(monthly_sales, aes(x = month, y = revenue)) +
   theme_minimal()
 ```
 
-```{r}
+```{r include=FALSE}
 revenue_ts <- ts(monthly_sales$revenue, frequency = 12)
 revenue_ts
 ```
 
-```{r}
+```{r echo=FALSE}
 plot(revenue_ts,
      main = "Monthly Revenue Time Series",
      ylab = "Revenue",
@@ -97,7 +85,7 @@ El análisis de la serie temporal se realizó siguiendo el procedimiento de Box-
 
 ### Verificación de estacionariedad
 
-```{r}
+```{r echo=FALSE}
 library(tseries)
 
 adf.test(revenue_ts)
