@@ -9,68 +9,64 @@ output:
     number_sections: true
 ---
 
-```{r include=FALSE}
+## Introducción
+
+Para este trabajo se utilizó un conjunto de datos de comercio electrónico que contiene información sobre transacciones de ventas, incluyendo variables como fecha de orden, categoría de producto, precio, descuentos y valor total de la venta. A partir de esta base de datos se construyó una serie temporal utilizando la variable total_revenue, que representa los ingresos generados por las ventas.
+
+Los datos originales corresponden a transacciones individuales, por lo que fue necesario realizar un proceso de agregación para obtener una serie temporal mensual de ingresos. De esta forma se generó una serie con observaciones mensuales correspondientes al período comprendido entre 2022 y 2023.
+
+El objetivo de este trabajo es modelar el comportamiento de la serie temporal de ingresos mensuales mediante modelos ARIMA, siguiendo el procedimiento de Box-Jenkins. Para ello se analizan las propiedades estadísticas de la serie, se identifican modelos candidatos, se evalúan sus residuos y finalmente se generan pronósticos para evaluar la capacidad predictiva del modelo seleccionado.
+
+## Exploración de la serie original
+
+En esta sección se realiza una exploración inicial de la serie temporal de ingresos mensuales obtenida a partir del conjunto de datos de ventas. El objetivo es observar el comportamiento general de la serie, identificar posibles patrones y evaluar visualmente la presencia de tendencia o estacionalidad.
+
+```{r echo=TRUE}
+library(readr)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(tseries)
+library(forecast)
+```
+
+```{r echo=TRUE}
 data <- read.csv("data/amazon_sales_dataset.csv")
 head(data)
 str(data)
 ```
-
-```{r include=FALSE}
+  
+```{r echo=TRUE}
 data$order_date <- as.Date(data$order_date)
 class(data$order_date)
 ```
-
-```{r include=FALSE}
-library(dplyr)
-library(lubridate)
-```
-
-```{r include=FALSE}
+  
+```{r echo=TRUE}
 monthly_sales <- data %>%
   mutate(month = floor_date(order_date, "month")) %>%
   group_by(month) %>%
   summarise(revenue = sum(total_revenue))
 
 head(monthly_sales)
+nrow(monthly_sales)
+```  
+
+
+```{r echo=TRUE}
+revenue_ts <- ts(monthly_sales$revenue, frequency = 12, start = c(2022, 1))
+revenue_ts
 ```
 
-
-## Introducción
-
-Para este trabajo se utilizó un conjunto de datos de comercio electrónico que contiene información sobre transacciones de ventas, incluyendo variables como fecha de orden, categoría de producto, precio, descuentos y valor total de la venta. A partir de esta base de datos se construyó una serie temporal utilizando la variable **total_revenue**, que representa los ingresos generados por las ventas.
-
-Los datos originales corresponden a transacciones individuales, por lo que fue necesario realizar un proceso de agregación para obtener una serie temporal mensual de ingresos. De esta forma se generó una serie con observaciones mensuales correspondientes al período comprendido entre 2022 y 2023.
-
-El objetivo de este trabajo es modelar el comportamiento de la serie temporal de ingresos mensuales mediante modelos ARIMA, siguiendo el procedimiento de Box-Jenkins. Para ello se analizan las propiedades estadísticas de la serie, se identifican modelos candidatos, se evalúan sus residuos y finalmente se generan pronósticos para evaluar la capacidad predictiva del modelo seleccionado.
-
-## Exploración de la serie temporal
-
-En esta sección se realiza una exploración inicial de la serie temporal de ingresos mensuales obtenida a partir del conjunto de datos de ventas. El objetivo es observar el comportamiento general de la serie, identificar posibles patrones y evaluar visualmente la presencia de tendencia o estacionalidad.
-  
 ### Gráfico de la serie original
 
-```{r echo=FALSE, fig.height=6, fig.width=10}
-library(ggplot2)
-
+```{r echo=TRUE, fig.height=6, fig.width=10}
 ggplot(monthly_sales, aes(x = month, y = revenue)) +
-  geom_line(color = "blue") +
+  geom_line(color = "#2C3E50", linewidth = 1) +
+  geom_point(size = 2) +
   labs(title = "Monthly Revenue Time Series",
        x = "Month",
        y = "Revenue") +
   theme_minimal()
-```
-
-```{r include=FALSE}
-revenue_ts <- ts(monthly_sales$revenue, frequency = 12)
-revenue_ts
-```
-
-```{r echo=FALSE}
-plot(revenue_ts,
-     main = "Monthly Revenue Time Series",
-     ylab = "Revenue",
-     xlab = "Time",
-     col = "blue")
 ```
 
 El gráfico de la serie temporal de ingresos mensuales muestra la evolución del revenue generado por las ventas a lo largo del período analizado. En general, la serie presenta variaciones en el nivel de ingresos entre los diferentes meses, con algunos incrementos y disminuciones a lo largo del tiempo.
@@ -85,17 +81,15 @@ El análisis de la serie temporal se realizó siguiendo el procedimiento de Box-
 
 ### Verificación de estacionariedad
 
-```{r echo=FALSE}
-library(tseries)
-
-adf.test(revenue_ts)
+```{r echo=TRUE}
+adf_original <- adf.test(revenue_ts)
+adf_original
 ```
 Para evaluar si la serie temporal es estacionaria se aplicó la prueba de Dickey-Fuller aumentada (ADF). Esta prueba permite determinar si la serie presenta una raíz unitaria, lo que implicaría que no es estacionaria.
 
 El resultado de la prueba ADF aplicada a la serie original arrojó un valor p de aproximadamente 0.05898. Dado que este valor es mayor que el nivel de significancia común de 0.05, no se rechaza la hipótesis nula de la prueba.
 
 Por lo tanto, se concluye que la serie temporal original no es estacionaria, lo cual hace necesario aplicar transformaciones para poder modelarla adecuadamente mediante modelos ARIMA.
-
 
 ### Transformación para lograr estacionariedad
 
@@ -112,7 +106,8 @@ plot(diff_revenue,
      col = "blue")
 ```
 ```{r}
-adf.test(diff_revenue)
+adf_diff <- adf.test(diff_revenue)
+adf_diff
 ```
 
 Dado que la prueba de Dickey-Fuller aumentada indicó que la serie original no es estacionaria, se aplicó una transformación mediante diferenciación de primer orden con el objetivo de estabilizar la media de la serie.
@@ -121,13 +116,13 @@ La diferenciación consiste en calcular la diferencia entre observaciones consec
 
 Luego de aplicar la primera diferenciación, se volvió a realizar la prueba de Dickey-Fuller aumentada. El resultado arrojó un valor p menor que 0.05, lo que permitió rechazar la hipótesis nula de raíz unitaria. Por lo tanto, se concluye que la serie diferenciada es estacionaria.
 
-En consecuencia, el orden de diferenciación utilizado en los modelos ARIMA estimados es d = 1.
+En consecuencia, el orden de diferenciación utilizado en los modelos ARIMA estimados es \(d = 1\).
 
 ### Identificación del modelo (ACF y PACF)
 
 ```{r fig.width=10, fig.height=6}
-acf(diff_revenue, main="ACF of Differenced Series")
-pacf(diff_revenue, main="PACF of Differenced Series")
+acf(diff_revenue, main = "ACF of Differenced Series")
+pacf(diff_revenue, main = "PACF of Differenced Series")
 ```
 
 Para identificar posibles modelos ARIMA se analizaron las funciones de autocorrelación (ACF) y autocorrelación parcial (PACF) de la serie diferenciada.
@@ -138,6 +133,14 @@ Por su parte, la PACF no presenta un corte claro en un rezago específico, sino 
 
 Con base en estos resultados se propusieron dos modelos candidatos para ser estimados y comparados posteriormente: ARIMA(0,1,1) y ARIMA(1,1,1).
 
+### Justificación de la no incorporación de componente estacional SARIMA
+
+Aunque el enunciado del taller hace referencia a modelos SARIMA, en este caso no se incorporó un componente estacional explícito. Esta decisión se fundamenta en tres razones principales. En primer lugar, la serie analizada contiene únicamente 24 observaciones mensuales, lo cual equivale a dos ciclos anuales completos; esta cantidad es reducida para identificar con suficiente solidez una estructura estacional estable.
+
+En segundo lugar, el gráfico de la serie original no muestra un patrón estacional claramente repetitivo entre un año y otro. Adicionalmente, en las funciones ACF y PACF de la serie diferenciada no se observan picos estacionales marcados en rezagos múltiplos de 12 que justifiquen la inclusión de términos estacionales \((P, D, Q)_{12}\).
+
+Por estas razones, se consideró más apropiado ajustar modelos ARIMA no estacionales. No obstante, se deja explícito que esta decisión responde a las características particulares de la serie y a la ausencia de evidencia suficiente para especificar un componente SARIMA de forma robusta.
+
 ## Estimación de modelos
 
 Con base en el análisis de las funciones de autocorrelación y autocorrelación parcial se estimaron dos modelos candidatos: ARIMA(0,1,1) y ARIMA(1,1,1). Estos modelos fueron estimados con el objetivo de comparar su desempeño y seleccionar el modelo que mejor se ajusta a la serie temporal.
@@ -146,7 +149,6 @@ Con base en el análisis de las funciones de autocorrelación y autocorrelación
 
 ```{r}
 model1 <- arima(revenue_ts, order = c(0,1,1))
-
 model1
 ```
 
@@ -154,15 +156,18 @@ model1
 
 ```{r}
 model2 <- arima(revenue_ts, order = c(1,1,1))
-
 model2
 ```
 
 ## Verificación de residuos
 
+### Diagnóstico del modelo ARIMA(0,1,1)
+
 ```{r, fig.width=10, fig.height=7}
 tsdiag(model1)
 ```
+
+### Diagnóstico del modelo ARIMA(1,1,1)
 
 ```{r fig.width=10, fig.height=8}
 tsdiag(model2)
@@ -172,83 +177,206 @@ Con el fin de evaluar la validez de los modelos estimados, se realizó un análi
 
 En ambos modelos, el gráfico de los residuos estandarizados muestra fluctuaciones alrededor de cero sin la presencia de patrones sistemáticos evidentes. Esto sugiere que los modelos logran capturar adecuadamente la estructura temporal de la serie.
 
-El análisis de la función de autocorrelación (ACF) de los residuos indica que la mayoría de las autocorrelaciones se encuentran dentro de los límites de confianza, lo que sugiere la ausencia de autocorrelación significativa en los residuos.
+El análisis de la función de autocorrelación de los residuos indica que la mayoría de las autocorrelaciones se encuentran dentro de los límites de confianza, lo que sugiere la ausencia de autocorrelación significativa en los residuos.
 
 Adicionalmente, los valores p asociados a la prueba de Ljung-Box para diferentes rezagos son mayores que el nivel de significancia de 0.05 en ambos modelos. Por lo tanto, no se rechaza la hipótesis nula de independencia de los residuos.
 
-En conjunto, estos resultados indican que los residuos de ambos modelos se comportan aproximadamente como ruido blanco, lo cual respalda la adecuación estadística de los modelos estimados.
+En conjunto, estos resultados indican que los residuos de ambos modelos se comportan aproximadamente como ruido blanco, lo cual respalda la adecuación estadística de los modelos estimados. Dado que ambos modelos cumplen razonablemente con los supuestos del análisis de residuos, la selección final del modelo se realizará utilizando criterios de información y métricas de pronóstico.
 
 ## Selección del modelo
 
-| Modelo | AIC |
-|------|------|
-| ARIMA(0,1,1) | 576.77 |
-| ARIMA(1,1,1) | 577.84 |
+```{r}
+aic_model1 <- model1$aic
+aic_model2 <- model2$aic
+
+sigma2_model1 <- model1$sigma2
+sigma2_model2 <- model2$sigma2
+
+comparison_fit <- data.frame(
+  Modelo = c("ARIMA(0,1,1)", "ARIMA(1,1,1)"),
+  AIC = c(aic_model1, aic_model2),
+  Varianza_Residual = c(sigma2_model1, sigma2_model2)
+)
+
+comparison_fit
+```
 
 Para seleccionar el modelo más adecuado se compararon los modelos ARIMA(0,1,1) y ARIMA(1,1,1) utilizando criterios de información y medidas de ajuste.
 
-El modelo ARIMA(0,1,1) presentó un menor valor del AIC en comparación con el modelo ARIMA(1,1,1). Dado que un menor valor de AIC indica un mejor equilibrio entre calidad de ajuste y complejidad del modelo, se seleccionó el modelo ARIMA(0,1,1) como el modelo final.
+El modelo ARIMA(0,1,1) presentó un menor valor del criterio de información de Akaike (AIC) en comparación con el modelo ARIMA(1,1,1). Dado que un menor valor de AIC indica un mejor equilibrio entre calidad de ajuste y complejidad del modelo, se seleccionó el modelo ARIMA(0,1,1) como el modelo final.
+
+Además, el análisis de residuos mostró que ambos modelos son estadísticamente válidos, por lo que el criterio de información y el desempeño predictivo resultan determinantes para la selección.
 
 La representación matemática del modelo seleccionado se expresa mediante la siguiente ecuación:
 
 $$
 (1 - B)Y_t = (1 - \theta_1 B)\varepsilon_t
 $$
+donde \(B\) es el operador de rezago, \(Y_t\) representa el valor de la serie en el tiempo \(t\), \(\theta_1\) es el parámetro del componente de media móvil y \(\varepsilon_t\) es un término de error aleatorio con media cero y varianza constante.
 
 ## Pronósticos y evaluación predictiva
 
-Una vez seleccionado el modelo final, se procedió a evaluar su capacidad predictiva mediante un esquema de validación utilizando muestras de entrenamiento y prueba.
+Una vez seleccionados los modelos candidatos, se procedió a evaluar su capacidad predictiva mediante un esquema de validación utilizando muestras de entrenamiento y prueba.
 
 ### División Train/Test
 
 ```{r}
-train <- window(revenue_ts, end = c(2,6))
-test <- window(revenue_ts, start = c(2,7))
+train <- window(revenue_ts, end = c(2023, 6))
+test <- window(revenue_ts, start = c(2023, 7))
+
+train
+test
+length(train)
+length(test)
 ```
+Para evaluar la capacidad predictiva de los modelos, la serie temporal se dividió en un conjunto de entrenamiento y un conjunto de prueba. Los primeros 18 meses fueron utilizados para estimar los modelos, mientras que los últimos 6 meses se reservaron para evaluar el desempeño de los pronósticos fuera de muestra.
 
-
-### Pronósticos
+### Pronósticos de ambos modelos
 
 ```{r}
-library(forecast)
+model1_train <- arima(train, order = c(0,1,1))
+model2_train <- arima(train, order = c(1,1,1))
 
-model_train <- arima(train, order = c(0,1,1))
+forecast_model1 <- forecast(model1_train, h = length(test))
+forecast_model2 <- forecast(model2_train, h = length(test))
 
-forecast_values <- forecast(model_train, h = length(test))
+pred1 <- forecast_model1$mean
+pred2 <- forecast_model2$mean
 
-pred <- forecast_values$mean
+forecast_model1
+forecast_model2
 ```
+
+```{r}
+pred1
+pred2
+```
+
 
 
 ```{r fig.width=10, fig.height=6}
-library(ggplot2)
-
-
 autoplot(revenue_ts, series = "Actual") +
-  autolayer(forecast_values$mean, series = "Forecast", color = "blue", size = 1) +
-  autolayer(test, series = "Test", color = "red", size = 1) +
+  autolayer(ts(pred1, start = start(test), frequency = 12),
+            series = "Forecast ARIMA(0,1,1)",
+            color = "blue",
+            linewidth = 1) +
+  autolayer(ts(pred2, start = start(test), frequency = 12),
+            series = "Forecast ARIMA(1,1,1)",
+            color = "darkgreen",
+            linewidth = 1) +
+  autolayer(test,
+            series = "Test",
+            color = "red",
+            linewidth = 1) +
   labs(title = "Revenue Forecast vs Actual Values",
        x = "Time",
        y = "Revenue") +
   theme_minimal()
 ```
-
+En la gráfica anterior se comparan los pronósticos generados por ambos modelos con los valores reales de la muestra de prueba. Se observa que los valores pronosticados tienden a estabilizarse alrededor de un nivel constante, lo cual es consistente con el comportamiento esperado en modelos de bajo orden con diferenciación.
 
 ### Evaluación del pronóstico (MSE y MAPE)
 
 ```{r}
-mse <- mean((test - pred)^2)
+mse_model1_test <- mean((test - pred1)^2)
+mape_model1_test <- mean(abs((test - pred1) / test)) * 100
 
-mape <- mean(abs((test - pred)/test))*100
+mse_model2_test <- mean((test - pred2)^2)
+mape_model2_test <- mean(abs((test - pred2) / test)) * 100
 
-mse
-mape
+metrics_test <- data.frame(
+  Modelo = c("ARIMA(0,1,1)", "ARIMA(1,1,1)"),
+  MSE_Test = c(mse_model1_test, mse_model2_test),
+  MAPE_Test = c(mape_model1_test, mape_model2_test)
+)
+
+metrics_test
+```
+
+```{r}
+fitted1 <- train - residuals(model1_train)
+fitted2 <- train - residuals(model2_train)
+
+mse_model1_train <- mean((train - fitted1)^2, na.rm = TRUE)
+mape_model1_train <- mean(abs((train - fitted1) / train), na.rm = TRUE) * 100
+
+mse_model2_train <- mean((train - fitted2)^2, na.rm = TRUE)
+mape_model2_train <- mean(abs((train - fitted2) / train), na.rm = TRUE) * 100
+
+metrics_train <- data.frame(
+  Modelo = c("ARIMA(0,1,1)", "ARIMA(1,1,1)"),
+  MSE_Train = c(mse_model1_train, mse_model2_train),
+  MAPE_Train = c(mape_model1_train, mape_model2_train)
+)
+
+metrics_train
+```
+
+```{r}
+metrics_summary <- comparison_fit %>%
+  left_join(metrics_train, by = "Modelo") %>%
+  left_join(metrics_test, by = "Modelo")
+
+metrics_summary
 ```
 
 
-Para evaluar el desempeño predictivo del modelo se calcularon dos métricas: el Error Cuadrático Medio (MSE) y el Error Porcentual Absoluto Medio (MAPE).
+Para evaluar el desempeño predictivo de los modelos se calcularon dos métricas: el Error Cuadrático Medio (MSE) y el Error Porcentual Absoluto Medio (MAPE), tanto en la muestra de entrenamiento como en la muestra de prueba.
 
-El valor obtenido para el MSE fue de 2143401341, mientras que el MAPE fue de aproximadamente 3.01%. Estos resultados indican que el modelo presenta un error porcentual relativamente bajo, lo que sugiere una buena capacidad para aproximar los valores reales de la serie en el período de prueba.
+La comparación muestra que el modelo ARIMA(0,1,1) presenta el menor AIC y un desempeño predictivo competitivo en términos de MSE y MAPE. Por esta razón, y considerando además la parsimonia del modelo, se mantiene como la mejor alternativa para describir y pronosticar la serie temporal analizada.
+
+### Validación Cruzada
+
+```{r}
+tsCV_mse_mape <- function(y, order, initial) {
+  
+  n <- length(y)
+  errors <- c()
+  actuals <- c()
+  
+  for (i in seq(initial, n - 1)) {
+    train_cv <- y[1:i]
+    test_cv <- y[i + 1]
+    
+    fit_cv <- try(arima(train_cv, order = order), silent = TRUE)
+    
+    if (!inherits(fit_cv, "try-error")) {
+      fc_cv <- forecast(fit_cv, h = 1)$mean[1]
+      errors <- c(errors, test_cv - fc_cv)
+      actuals <- c(actuals, test_cv)
+    }
+  }
+  
+  mse <- mean(errors^2, na.rm = TRUE)
+  mape <- mean(abs(errors / actuals), na.rm = TRUE) * 100
+  
+  data.frame(
+    MSE_CV = mse,
+    MAPE_CV = mape,
+    N_Validaciones = length(errors)
+  )
+}
+```
+
+```{r}
+cv_model1 <- tsCV_mse_mape(revenue_ts, order = c(0,1,1), initial = 18)
+cv_model2 <- tsCV_mse_mape(revenue_ts, order = c(1,1,1), initial = 18)
+
+cv_comparison <- data.frame(
+  Modelo = c("ARIMA(0,1,1)", "ARIMA(1,1,1)"),
+  MSE_CV = c(cv_model1$MSE_CV, cv_model2$MSE_CV),
+  MAPE_CV = c(cv_model1$MAPE_CV, cv_model2$MAPE_CV),
+  N_Validaciones = c(cv_model1$N_Validaciones, cv_model2$N_Validaciones)
+)
+
+cv_comparison
+```
+
+En complemento a la partición train/test, se realizó un análisis de validación cruzada de tipo recursivo con ventana creciente. Para ello se dejó inicialmente un bloque de 18 observaciones para estimación, y posteriormente se generaron pronósticos de un paso adelante, incorporando progresivamente nuevas observaciones al conjunto de entrenamiento.
+
+Este procedimiento permitió comparar el poder predictivo de los modelos ARIMA(0,1,1) y ARIMA(1,1,1) en varios puntos de la serie. El criterio de selección se basó en los valores obtenidos de MSE y MAPE bajo validación cruzada, considerando como mejor modelo aquel que presenta menores errores de pronóstico.
+
+Los resultados de la validación cruzada confirman la conveniencia de seleccionar el modelo ARIMA(0,1,1), ya que presenta un mejor equilibrio entre parsimonia, ajuste estadístico y capacidad predictiva.
 
 ## Modelo SARIMAX (Ejercicio adicional)
 
@@ -256,13 +384,11 @@ El valor obtenido para el MSE fue de 2143401341, mientras que el MAPE fue de apr
 monthly_discount <- data %>%
   mutate(month = floor_date(order_date, "month")) %>%
   group_by(month) %>%
-  summarise(avg_discount = mean(discount_percent))
+  summarise(avg_discount = mean(discount_percent), .groups = "drop")
+
+discount_ts <- ts(monthly_discount$avg_discount, frequency = 12, start = c(2022,1))
 
 head(monthly_discount)
-```
-
-```{r}
-discount_ts <- ts(monthly_discount$avg_discount, frequency = 12)
 discount_ts
 ```
 
@@ -278,7 +404,7 @@ sarimax_model
 tsdiag(sarimax_model)
 ```
 
-Como ejercicio adicional se estimó un modelo SARIMAX con el objetivo de evaluar si una variable externa puede mejorar la capacidad explicativa del modelo. En este caso se utilizó como variable exógena el descuento promedio mensual (avg_discount), calculado a partir de la variable discount_percent del conjunto de datos original.
+Como ejercicio adicional se estimó un modelo SARIMAX con el objetivo de evaluar si una variable externa puede mejorar la capacidad explicativa del modelo. En este caso se utilizó como variable exógena el descuento promedio mensual, calculado a partir de la variable discount_percent del conjunto de datos original.
 
 El modelo estimado corresponde a un SARIMAX(0,1,1), donde la serie de ingresos mensuales se modela incorporando el descuento promedio mensual como variable explicativa. Los resultados del modelo muestran un coeficiente negativo asociado a la variable de descuento, lo que sugiere que incrementos en el descuento promedio mensual estarían asociados con reducciones en el revenue esperado, manteniendo constante la dinámica temporal del modelo.
 
@@ -294,9 +420,11 @@ En este trabajo se aplicó la metodología de Box-Jenkins para modelar una serie
 
 El análisis inicial mostró que la serie original no era estacionaria, por lo que fue necesario aplicar una diferenciación de primer orden. Posteriormente se analizaron las funciones de autocorrelación y autocorrelación parcial, lo que permitió identificar dos modelos candidatos: ARIMA(0,1,1) y ARIMA(1,1,1).
 
-Luego de estimar ambos modelos y realizar el análisis de residuos, se seleccionó el modelo ARIMA(0,1,1) como el modelo final debido a que presentó un menor valor del criterio de información AIC y cumplió con los supuestos estadísticos requeridos.
+Luego de estimar ambos modelos y realizar el análisis de residuos, se observó que los dos modelos son estadísticamente válidos. Sin embargo, la comparación mediante AIC, métricas de pronóstico y validación cruzada mostró que el modelo ARIMA(0,1,1) ofrece el mejor equilibrio entre simplicidad, ajuste y capacidad predictiva.
 
-Finalmente, se generaron pronósticos utilizando una división de los datos en muestras de entrenamiento y prueba. La evaluación del desempeño predictivo mediante las métricas MSE y MAPE mostró que el modelo presenta una muy buena capacidad de pronóstico.
+La evaluación del desempeño predictivo mediante la división train/test y las métricas MSE y MAPE evidenció que el modelo presenta una buena capacidad de pronóstico para la serie analizada. Además, la validación cruzada confirmó que este modelo mantiene un desempeño consistente en diferentes puntos de la serie.
+
+Aunque el taller plantea el uso de modelos SARIMA, en este caso no se incorporó una componente estacional debido a la limitada longitud de la serie y a la ausencia de evidencia visual y estadística suficientemente fuerte de estacionalidad. Esta decisión permitió construir un modelo más parsimonioso y coherente con las características de los datos.
 
 Adicionalmente, se estimó un modelo SARIMAX como ejercicio complementario incorporando una variable exógena correspondiente al descuento promedio mensual. Sin embargo, la inclusión de esta variable no mejoró el ajuste del modelo en comparación con el ARIMA simple.
 
